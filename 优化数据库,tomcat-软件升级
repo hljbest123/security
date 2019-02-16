@@ -1,0 +1,228 @@
+数据库安全mariadb
+  安装完MariaDB或MySQL后，默认root没有密码，并且提供了一个任何人都可以操作的test测试数据库
+  有一个名称为mysql_secure_installation的脚本，该脚本可以帮助我们为root设置密码，
+  并禁止root从远程其他主机登陆数据库，并删除测试性数据库test
+    [root@proxy ~]# systemctl status mariadb
+    //确保服务已启动 
+    [root@proxy ~]# mysql_secure_installation                        //mysql--table键
+    //执行初始化安全脚本
+    Enter current(当前的) password for root (enter for none):                    //输入当前的root密码
+    Set root password? [Y/n] y                                                 //是否设置root密码
+    New password:
+    Re-enter new password:                                                      //输入新密码
+    Remove anonymous(无记录的) users? [Y/n] y                                   //删除匿名账户
+    Disallow root login remotely? [Y/n] y                                      //禁止root远程登陆
+    Remove test database and access（访问,入口) to it? [Y/n] y                             //删除测试库 
+    Reload privilege tables now? [Y/n] y                                       //重新载入权限设置
+    
+  手动修改MariaDB或MySQL数据库密码的方法 
+    [root@proxy ~]# mysqladmin -uroot -predhat password 'mysql'
+    //修改密码，旧密码为redhat，新密码为mysql
+    [root@proxy ~]# mysql -uroot -pmysql
+    MariaDB [(none)]>set password for root@'localhost'=password('redhat');
+    //使用账户登录数据库，修改密码
+    MariaDB [(none)]> select user,host,password from mysql.user;
+    +--------+---------+---------------------------------------------+
+    | user     | host     | password                                       |
+    +--------+---------+---------------------------------------------+
+    | root     | localhost     | *84BB5DF4823DA319BBF86C99624479A198E6EEE9 |
+    | root     | 127.0.0.1     | *84BB5DF4823DA319BBF86C99624479A198E6EEE9 |
+    | root     | ::1           | *84BB5DF4823DA319BBF86C99624479A198E6EEE9 |
+    +--------+-----------+--------------------------------------------+
+    
+  密码被明文记录
+    [root@proxy ~]# cat .bash_history                             
+    mysqladmin -uroot -pxxx password 'redhat'
+    //通过命令行修改的密码，bash会自动记录历史，历史记录中记录了明文密码
+    [root@proxy ~]# cat .mysql_history 
+    set password for root@'localhost'=password('redhat');
+    select user,host,password from mysql.user;
+    flush privileges;
+    //通过mysql命令修改的密码，mysql也会有所有操作指令的记录，这里也记录了明文密码 该文件自动生成
+    
+  数据备份与还原
+    [root@proxy ~]# mysqldump -uroot -predhat mydb table > table.sql
+    //备份数据库中的某个数据表
+    [root@proxy ~]# mysqldump -uroot -predhat mydb > mydb.sql
+    //备份某个数据库
+    [root@proxy ~]# mysqldump -uroot -predhat --all-databases > all.sql
+    //备份所有数据库
+    
+  还原数据库
+    [root@proxy ~]# mysql -uroot -predhat mydb  < table.sql            //还原数据表
+    [root@proxy ~]# mysql -uroot -predhat mydb  < mydb.sql            //还原数据库
+    [root@proxy ~]# mysql -uroot -predhat < all.sql                    //还原所有数据库
+    
+  数据安全
+    a创建一个数据库账户
+     [root@proxy ~]# mysql -uroot -predhat
+      //使用管理员，登陆数据库
+      MariaDB [(none)]> grant all on *.* to tom@'%' identified by '123';
+      //创建一个新账户tom
+      
+    b使用tcpdump抓包
+     [root@proxy ~]# tcpdump -w log -i any src or dst port 3306
+      //抓取源或目标端口是3306的数据包，保存到log文件中
+    
+    c客户端从远程登陆数据库服务器
+     [root@client ~]# mysql -utom -p123 -h 192.168.4.5
+      //在192.168.4.100这台主机使用mysql命令登陆远程数据库服务器（192.168.4.5）
+      //用户名为tom，密码为123
+      MariaDB [(none)]> select * from mysql.user;
+      //登陆数据库后，任意执行一条查询语句
+      
+    d回到服务器查看抓取的数据包
+     [root@proxy ~]# tcpdump -A -r log
+      //使用tcpdump查看之前抓取的数据包，很多数据库的数据都明文显示出来
+      
+      如何解决？
+      可以使用SSH远程连接服务器后，再从本地登陆数据库（避免在网络中传输数据，因为网络环境中不知道有没有抓包者）
+      让mysql服务器在私网环境下工作
+      或者也可以使用SSL对MySQL服务器进行加密，类似与HTTP+SSL一样，MySQL也支持SSL加密（确保网络中传输的数据是被加密的）
+      
+Tomcat安全性
+  隐藏版本信息、修改tomcat主配置文件（隐藏版本信息）
+  未修改版本信息前，使用命令查看服务器的版本信息
+    [root@proxy ~]# curl -I http://192.168.2.100:8080/xx        
+    //访问不存在的页面文件，查看头部信息
+    [root@proxy ~]# curl -I http://192.168.2.100:8080    
+    //访问存在的页面文件，查看头部信息
+    [root@proxy ~]# curl http://192.168.2.100:8080/xx
+    //访问不存在的页面文件，查看错误信息
+    
+  修改tomcat配置文件，修改版本信息
+    [root@web1 tomcat]# yum -y install java-1.8.0-openjdk-devel    //可执行java写的.jar脚步
+    [root@web1 tomcat]# cd /usr/local/tomcat/lib/
+    [root@web1 lib]# jar -xf catalina.jar                             //jar --help
+    [root@web1 lib]# vim org/apache/catalina/util/ServerInfo.properties 
+    //根据自己的需要，修改版本信息的内容
+    [root@web1 lib]#vim /usr/local/tomcat/conf/server.xml               //网页配置文件
+      //tomcat服务器配置文件，修改版本信息，手动添加server参数
+      69 <Connector port="8080" protocol="HTTP/1.1"             
+                 connectionTimeout="20000"
+                redirectPort="8443" server="joker"/>
+    [root@web1 lib]# /usr/local/tomcat/bin/shutdown.sh        //关闭服务
+    [root@web1 lib]# /usr/local/tomcat/bin/startup.sh        //启动服务
+  
+  查看结果
+    [root@proxy ~]# curl -I http://192.168.2.100:8080/xx        
+    //访问不存在的页面文件，查看头部信息
+    [root@proxy ~]# curl -I http://192.168.2.100:8080    
+    //访问存在的页面文件，查看头部信息
+    [root@proxy ~]# curl http://192.168.2.100:8080/xx
+    //访问不存在的页面文件，查看错误信息
+    
+  降级启动tomcat
+  默认tomcat使用系统高级管理员账户root启动服务，启动服务尽量使用普通用户。
+    [root@web1 ~]# useradd tomcat
+    [root@web1 ~]# chown -R tomcat:tomcat /usr/local/tomcat/
+    //修改tomcat目录的权限，让tomcat账户对该目录有操作权限
+    [root@web1 ~]# su -c /usr/local/tomcat/bin/startup.sh tomcat
+    //使用su命令切换为tomcat账户，以tomcat账户的身份启动tomcat服务
+    [root@web1 ~]# chmod +x /etc/rc.local                //该文件为开机启动文件
+    [root@web1 ~]# vim /etc/rc.local                     //修改文件，添加如下内容
+    su -c /usr/local/tomcat/bin/startup.sh tomcat
+    
+使用diff和patch工具
+  diff(different)原则
+    可以提示用户修改第一个文件后能得到第二个文件
+  
+  选项                              //diff --help
+    -u   输出统一内容的头部信息      (生成.patch补丁文件用)
+    -r   第归对比目录中的所有资源   
+                    //A目录下没有txt文件,B目录下有txt文件
+                   //diff比较俩个目录时,默认提示txt仅在B目录有（无法根据补丁修复A缺失的文件）
+    -a   所有文件视为文本          （包括二进制文件）
+    -N   无文件视为空文件            (空文件怎么变成第二个文件)
+                    //diff比较时使用N,则会比较B下的txt与A下的空文件对比
+                    //补丁信息会说明如何从空文件修改成txt文件,打补丁即可成功
+   
+  使用diff对比文件差异
+    环境准备
+    编写两个版本的脚本，一个为v1版本，一个为v2版本
+      [root@proxy ~]# cat test1.sh                                //v1版本脚本
+      #!/bin/bash
+      echo "hello wrld"
+      [root@proxy ~]# cat test2.sh                                //v2版本脚本
+      #!/bin/bash
+      echo "hello the world"
+      echo "test file"
+  
+  使用diff生成补丁文件
+    用diff比对信息
+      [root@proxy ~]# diff  test1.sh test2.sh                     //查看文件差异
+      @@ -1,3 +1,3 @@
+      #!/bin/bash
+      -echo "hello world"
+      -echo "test"
+      +echo "hello the world"
+      +echo "test file"
+      [root@proxy ~]# diff -u test1.sh test2.sh                 //查看差异，包含头部信息
+      --- test1.sh    2018-02-07 22:20:02.723971251 +0800
+      +++ test2.sh    2018-02-07 22:20:13.358760687 +0800
+      @@ -1,3 +1,3 @@
+      #!/bin/bash
+      -echo "hello world"
+      -echo "test"
+      +echo "hello the world"
+      +echo "test file"
+      
+    生成补丁文件
+      [root@proxy demo]# diff -u test1.sh test2.sh > test.patch
+    
+  使用patch命令为旧版本打补丁     //patch --help
+      [root@proxy demo]# yum -y install patch
+      [root@proxy demo]# patch -p0 < test.patch                    //打补丁
+      patching file test1.sh                                      //选项 -i PATCHFILE  --input=PATCHFILE
+      //patch -pnum（其中num为数字，指定删除补丁文件中多少层路径前缀） 
+      //如原始路径为/u/howard/src/blurfl/blurfl.c
+      //-p0则整个路径不变
+      //-p1则修改路径为u/howard/src/blurfl/blurfl.c
+      //-p4则修改路径为blurfl/blurfl.c
+      //-R(reverse)反向修复，-E修复后如果文件为空，则删除该文件
+      [root@proxy demo]# patch -RE < test.patch                     //还原旧版本，反向修复
+
+  对比目录中所有文件的差异
+    准备实验环境
+      [root@proxy ~]# mkdir demo
+      [root@proxy ~]# cd demo
+      [root@proxy demo]# mkdir {source1,source2}
+      [root@proxy demo]# echo "hello world"       > source1/test.sh
+      [root@proxy demo]# cp /bin/find source1/
+      [root@proxy demo]#  tree source1/                         //tree软件用树形结构查看目录 yum -y install tree
+                                                                //source1目录下2个文件
+      |-- find
+      `-- test.sh
+      [root@proxy demo]# echo "hello the world"  > source2/test.sh
+      [root@proxy demo]# echo "test" > source2/tmp.txt
+      [root@proxy demo]# cp /bin/find source2/
+      [root@proxy demo]# echo "1" >> source2/find 
+      [root@proxy demo]#  tree source2/                        //source1目录下3个文件
+      |-- find
+      |-- test.sh
+      `-- tmp.txt
+        //注意：两个目录下find和test.sh文件内容不同，source2有tmp.txt而source1没有该文件
+        
+    制作补丁文件 
+      [root@proxy demo]# diff -u source1/ source2/
+      //仅对比了文本文件test.sh；二进制文件、tmp都没有对比差异，仅提示，因为没有-a和-N选项
+      [root@proxy demo]# diff -Nu source1/ source2/
+      //对比了test.sh，并且使用source2目录的tmp.txt与source1的空文件对比差异。
+      [root@proxy demo]# diff -Nua source1/ source2/
+      //对比了test.sh、tmp.txt、find(程序)
+      [root@proxy ~]# cd demo
+      [root@proxy demo]# diff -Nuar source1/ source2/ > source.patch
+      
+    使用patch命令为代码打补丁  
+      [root@proxy demo]# ls
+      source1  source2  source.patch
+      [root@proxy demo]# cat source.patch                //对比的文件有路径信息
+      --- source1/test.sh 2018-02-07 22:51:33.034879417 +0800
+      +++ source2/test.sh 2018-02-07 22:47:32.531754268 +0800
+      @@ -1 +1 @@
+      -hello world
+      +hello the world
+      [root@proxy demo]# cd source1
+      [root@proxy source1]# patch  -p1 < ../source.patch       
+      
+      //patch -pnum（其中num为数字，指定删除补丁文件中多少层路径前缀） head -2 补丁文件与打 查看多少层  与打补丁所在位置 比较出num
